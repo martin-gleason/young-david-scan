@@ -33,6 +33,21 @@ def test_search_cases_filters_by_last_name(fresh_db):
     assert names == {"Smith", "Smithers"}
 
 
+def test_date_range_search_works_across_year_boundaries(fresh_db):
+    """Regression: under MM/DD/YYYY storage, '12/15/2023' lexicographically
+    sorted after '01/15/2024' and a search from 2023 → 2024-02 would miss
+    cross-year rows. With ISO storage this must work correctly.
+    """
+    db.create_case("Alpha", "Courtroom 1", "DOCKET-A", "2023-12-15")
+    db.create_case("Bravo", "Courtroom 1", "DOCKET-B", "2024-01-15")
+    db.create_case("Charlie", "Courtroom 1", "DOCKET-C", "2024-03-15")
+
+    # All three are within Dec 2023 – Feb 2024 inclusive — wait, only A and B.
+    results = db.search_cases(date_from="2023-12-01", date_to="2024-02-01")
+    dockets = {r["docket_number"] for r in results}
+    assert dockets == {"DOCKET-A", "DOCKET-B"}
+
+
 def test_queue_summary_counts_by_status(fresh_db):
     a = db.add_document("a.pdf", "/tmp/a.pdf")
     db.add_document("b.pdf", "/tmp/b.pdf")

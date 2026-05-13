@@ -87,11 +87,22 @@ def import_pdfs(pdf_paths: list[Path]) -> list[int]:
     doc_ids: list[int] = []
     for src in pdf_paths:
         dest = _safe_copy(src, dest_dir)
-        doc_id = db.add_document(
-            original_filename=src.name,
-            stored_path=str(dest),
-            status="pending",
-        )
+        try:
+            doc_id = db.add_document(
+                original_filename=src.name,
+                stored_path=str(dest),
+                status="pending",
+            )
+        except Exception:
+            # DB insert failed after the file copy succeeded — remove the
+            # orphaned copy so the archive doesn't accumulate files we
+            # don't know about.
+            log.exception("add_document failed; removing orphaned copy %s", dest)
+            try:
+                dest.unlink(missing_ok=True)
+            except OSError:
+                log.exception("Failed to unlink orphan %s", dest)
+            raise
         doc_ids.append(doc_id)
     return doc_ids
 

@@ -19,6 +19,7 @@ from ..config import (
     FONT_SMALL,
     PETITION_TYPES,
 )
+from ..dates import DateParseError, format_us_date, parse_us_date
 from ..logging_setup import get_logger
 from ._shared import btn, combo, entry, field_row, make_header
 
@@ -249,7 +250,7 @@ class EntryScreen(tk.Frame):
             self._found_case = case
             self._link_result_var.set(
                 f"Found:  {case['last_name']}  |  {case['docket_number']}"
-                f"\n{case['courtroom']}  |  {case['case_date']}"
+                f"\n{case['courtroom']}  |  {format_us_date(case['case_date'])}"
             )
             self._link_result_label.config(fg=C_SUCCESS)
             self._link_btn.pack(pady=4)
@@ -275,7 +276,7 @@ class EntryScreen(tk.Frame):
             w.delete(0, tk.END)
         self._last_name_entry.insert(0, case["last_name"])
         self._docket_entry.insert(0, case["docket_number"])
-        self._date_entry.insert(0, case["case_date"])
+        self._date_entry.insert(0, format_us_date(case["case_date"]))
 
         if case["courtroom"] in COURTROOMS:
             self._courtroom_combo.set(case["courtroom"])
@@ -300,13 +301,20 @@ class EntryScreen(tk.Frame):
     # ── Save & Skip ───────────────────────────────────────────────────────
 
     def _validate(self) -> bool:
+        """Run field-level checks. Returns True iff inputs are usable."""
         errors = []
         if not self._last_name_entry.get().strip():
             errors.append("Last Name is required.")
         if not self._docket_entry.get().strip():
             errors.append("Docket # is required.")
-        if not self._date_entry.get().strip():
+        date_raw = self._date_entry.get().strip()
+        if not date_raw:
             errors.append("Case Date is required.")
+        else:
+            try:
+                parse_us_date(date_raw)
+            except DateParseError as exc:
+                errors.append(str(exc))
         if errors:
             self._error_var.set("\n".join(errors))
             return False
@@ -322,7 +330,7 @@ class EntryScreen(tk.Frame):
         last_name = self._last_name_entry.get().strip()
         courtroom = self._courtroom_combo.get()
         docket = self._docket_entry.get().strip()
-        case_date = self._date_entry.get().strip()
+        case_date = parse_us_date(self._date_entry.get().strip())
         petition = self._petition_combo.get()
         notes = self._notes_entry.get().strip()
 
