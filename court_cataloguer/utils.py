@@ -2,6 +2,7 @@
 # No UI code here — pure logic only.
 
 import ctypes
+import hashlib
 import os
 import shutil
 import string
@@ -13,6 +14,7 @@ import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from . import audit
 from . import database as db
 from .config import ARCHIVE_DIR, EXPORTS_DIR, MASTER_XLSX
 from .logging_setup import get_logger
@@ -72,11 +74,65 @@ def find_pdfs_on_path(root: str) -> list[Path]:
 # ══════════════════════════════════════════════════════════════════════════════
 
 
+def sha256_file(path: Path, chunk_size: int = 64 * 1024) -> str:
+    """Stream-hash a file, return hex digest. ~50 MB/s on cold disk; fine."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(chunk_size), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def verify_pdf_integrity(doc: dict) -> bool:
+    """Hash the file on disk and compare with documents.sha256.
+
+    Returns True iff the file matches OR the row had NULL sha256 (in which
+    case we backfill — pre-Phase-4 docs need this on-first-open path).
+    Returns False on mismatch. The False path also appends an
+    `integrity.mismatch` audit row. Caller is responsible for any modal
+    warning / override behaviour.
+    """
+    path = Path(doc["stored_path"])
+    if not path.exists():
+        # Missing file is a different kind of problem — handled by callers.
+        return True
+
+    actual = sha256_file(path)
+    expected = doc.get("sha256")
+    if not expected:
+        # Pre-Phase-4 doc: backfill and proceed.
+        try:
+            db.set_document_sha256(doc["id"], actual)
+            log.info("Backfilled sha256 for doc id=%s", doc["id"])
+        except Exception:
+            log.exception("Failed to backfill sha256 for doc id=%s", doc["id"])
+        return True
+    if expected == actual:
+        return True
+
+    # Mismatch — log + audit.
+    log.warning("PDF integrity mismatch on doc id=%s", doc["id"])
+    try:
+        audit.append_standalone(
+            "integrity.mismatch",
+            target_table="documents",
+            target_id=doc["id"],
+            details={"expected_prefix": expected[:12], "actual_prefix": actual[:12]},
+        )
+    except Exception:
+        log.exception("Failed to append integrity.mismatch audit row")
+    return False
+
+
 def import_pdfs(pdf_paths: list[Path]) -> list[int]:
     """
     Copy each PDF into the local archive folder (organised by import date),
     register each one in the database as 'pending', and return a list of
     the new document IDs.
+
+    Each row gets a SHA-256 over the COPIED file (so verification later
+    checks the archive copy, not the USB original) plus chain-of-custody
+    fields (imported_by from USERNAME, import_machine from platform.node()).
 
     Safe to call multiple times — duplicate filenames are auto-renamed.
     """
@@ -84,14 +140,21 @@ def import_pdfs(pdf_paths: list[Path]) -> list[int]:
     dest_dir = ARCHIVE_DIR / today_str
     dest_dir.mkdir(parents=True, exist_ok=True)
 
+    imported_by = audit.actor()
+    import_machine = audit.machine()
+
     doc_ids: list[int] = []
     for src in pdf_paths:
         dest = _safe_copy(src, dest_dir)
         try:
+            digest = sha256_file(dest)
             doc_id = db.add_document(
                 original_filename=src.name,
                 stored_path=str(dest),
                 status="pending",
+                sha256=digest,
+                imported_by=imported_by,
+                import_machine=import_machine,
             )
         except Exception:
             # DB insert failed after the file copy succeeded — remove the

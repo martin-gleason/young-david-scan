@@ -66,13 +66,22 @@ def rekey(new_key: bytes) -> None:
     """Change the master key on the existing DB.
 
     The current master key (set via set_master_key) must already be valid;
-    we verify with a probe read, then run PRAGMA rekey, then update the
-    in-memory key. PRAGMA rekey rewrites every page — slow on large DBs.
+    we verify with a probe read, log an audit row under the OLD key (so the
+    chain stays anchored), run PRAGMA rekey, then update the in-memory key.
+    PRAGMA rekey rewrites every page — slow on large DBs.
     """
+    from . import audit
+
     if not isinstance(new_key, bytes) or len(new_key) != 32:
         raise ValueError("new key must be exactly 32 bytes")
     conn = _connect()  # raises WrongPassphraseError if current key is wrong
     try:
+        # Append the audit row BEFORE rekey so it's signed by the current
+        # (about-to-be-old) audit key — verify_chain after rekey will use
+        # the NEW audit key, but all rows up to and including this one are
+        # signed under the old key. See risk-section in docs/phase-4-plan.md.
+        audit.append(conn, "auth.rekey")
+        conn.commit()
         conn.execute(f"PRAGMA rekey = \"x'{new_key.hex()}'\"")
     finally:
         conn.close()
@@ -134,6 +143,8 @@ def create_case(
     last_name: str, courtroom: str, docket_number: str, case_date: str, notes: str = ""
 ) -> int:
     """Insert a new case. Returns the new case id."""
+    from . import audit  # lazy: audit imports database
+
     with _connect() as conn:
         cur = conn.execute(
             """INSERT INTO cases (last_name, courtroom, docket_number,
@@ -141,8 +152,10 @@ def create_case(
                VALUES (?, ?, ?, ?, ?)""",
             (last_name.strip(), courtroom.strip(), docket_number.strip(), case_date, notes.strip()),
         )
+        new_id = cur.lastrowid
+        audit.append(conn, "case.create", target_table="cases", target_id=new_id)
         conn.commit()
-        return cur.lastrowid
+        return new_id
 
 
 def get_case_by_id(case_id: int) -> dict | None:
@@ -200,20 +213,62 @@ def get_all_cases() -> list[dict]:
 # ── Document Operations ───────────────────────────────────────────────────────
 
 
-def add_document(original_filename: str, stored_path: str, status: str = "pending") -> int:
-    """Register a newly imported PDF. Returns the new document id."""
+def add_document(
+    original_filename: str,
+    stored_path: str,
+    status: str = "pending",
+    sha256: str | None = None,
+    imported_by: str | None = None,
+    import_machine: str | None = None,
+) -> int:
+    """Register a newly imported PDF. Returns the new document id.
+
+    Provenance fields (sha256, imported_by, import_machine) are NULL for
+    pre-Phase-4 rows; for fresh imports utils.import_pdfs populates them.
+    """
+    from . import audit  # lazy: audit imports database
+
     with _connect() as conn:
         cur = conn.execute(
-            """INSERT INTO documents (original_filename, stored_path, status)
-               VALUES (?, ?, ?)""",
-            (original_filename, str(stored_path), status),
+            """INSERT INTO documents
+                  (original_filename, stored_path, status,
+                   sha256, imported_by, import_machine)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (original_filename, str(stored_path), status, sha256, imported_by, import_machine),
+        )
+        new_id = cur.lastrowid
+        audit.append(
+            conn,
+            "doc.import",
+            target_table="documents",
+            target_id=new_id,
+            # Only include a sha256 prefix to keep audit rows narrow; full
+            # hash already lives in documents.sha256.
+            details={"sha256_prefix": (sha256 or "")[:12]} if sha256 else None,
         )
         conn.commit()
-        return cur.lastrowid
+        return new_id
+
+
+def set_document_sha256(doc_id: int, sha256: str) -> None:
+    """Backfill the sha256 for a doc that was imported before Phase 4.
+
+    Refuses to overwrite a non-NULL value — that's the integrity-bypass path.
+    """
+    with _connect() as conn:
+        row = conn.execute("SELECT sha256 FROM documents WHERE id = ?", (doc_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"no document with id {doc_id}")
+        if row["sha256"] is not None and row["sha256"] != "":
+            raise ValueError(f"document {doc_id} already has a sha256; refusing to overwrite")
+        conn.execute("UPDATE documents SET sha256 = ? WHERE id = ?", (sha256, doc_id))
+        conn.commit()
 
 
 def complete_document(doc_id: int, case_id: int, petition_type: str) -> None:
     """Mark a document as complete and link it to a case."""
+    from . import audit
+
     with _connect() as conn:
         conn.execute(
             """UPDATE documents
@@ -221,15 +276,25 @@ def complete_document(doc_id: int, case_id: int, petition_type: str) -> None:
                WHERE id = ?""",
             (case_id, petition_type, doc_id),
         )
+        audit.append(
+            conn,
+            "doc.complete",
+            target_table="documents",
+            target_id=doc_id,
+            details={"case_id": case_id},
+        )
         conn.commit()
 
 
 def skip_document(doc_id: int) -> None:
+    from . import audit
+
     with _connect() as conn:
         conn.execute(
             "UPDATE documents SET status = 'skipped' WHERE id = ?",
             (doc_id,),
         )
+        audit.append(conn, "doc.skip", target_table="documents", target_id=doc_id)
         conn.commit()
 
 

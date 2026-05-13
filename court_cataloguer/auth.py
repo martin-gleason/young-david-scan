@@ -76,7 +76,9 @@ def first_run_setup(passphrase: str) -> None:
     """Create a fresh keyfile and install the derived key in memory.
 
     Caller is responsible for then invoking `database.init_db()` which
-    creates the schema in a newly-encrypted DB.
+    creates the schema in a newly-encrypted DB. Audit row is appended
+    by the caller after init_db (the audit_log table doesn't exist until
+    migration 003 runs).
     """
     salt = crypto.generate_salt()
     crypto.save_keyfile(KEYFILE_PATH, salt)
@@ -89,7 +91,8 @@ def unlock(passphrase: str) -> None:
     """Derive the key from an existing keyfile and try to open the DB.
 
     Raises WrongPassphraseError if the derived key doesn't open the DB.
-    Caller is responsible for invoking `database.init_db()` after success.
+    On success, init_db is called (which is idempotent + runs migrations).
+    Audit row is appended by the caller after success.
     """
     kf = crypto.load_keyfile(KEYFILE_PATH)
     key = crypto.derive_key(passphrase, kf.salt, iterations=kf.iterations)
@@ -99,6 +102,10 @@ def unlock(passphrase: str) -> None:
         database.init_db()
     except database.WrongPassphraseError:
         database.clear_master_key()
+        # Wrong passphrase can't sign an audit row — log to the file logger
+        # only. Documented gap; an attacker who keeps guessing leaves no DB
+        # trail but the rotating file log preserves the attempts.
+        log.warning("Unlock failed: wrong passphrase")
         raise
 
 

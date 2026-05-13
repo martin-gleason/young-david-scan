@@ -5,6 +5,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
 
+from .. import audit, utils
 from .. import database as db
 from ..config import (
     C_BG,
@@ -199,7 +200,27 @@ class EntryScreen(tk.Frame):
 
         pdf_path = Path(doc["stored_path"])
         if pdf_path.exists():
+            verified = utils.verify_pdf_integrity(doc)
+            if not verified:
+                proceed = messagebox.askyesno(
+                    "Integrity Warning",
+                    "This PDF's contents differ from what was recorded at import time. "
+                    "The discrepancy has been logged in the audit log. "
+                    "Open it anyway?",
+                )
+                if not proceed:
+                    self._viewer.close()
+                    return
             self._viewer.load(pdf_path)
+            try:
+                audit.append_standalone(
+                    "doc.open",
+                    target_table="documents",
+                    target_id=doc["id"],
+                    details={"verified": verified, "via": "entry"},
+                )
+            except Exception:
+                log.exception("Failed to append doc.open audit row")
         else:
             self._viewer.close()
             messagebox.showwarning(

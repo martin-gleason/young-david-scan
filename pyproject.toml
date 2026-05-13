@@ -57,6 +57,7 @@ ignore = [
     "E501",   # line length handled by formatter
     "E731",   # lambda assignments are common in Tk callbacks
     "SIM108", # explicit if/else is clearer than ternaries for Tk command capture
+    "UP017",  # datetime.UTC is 3.11+; we use timezone.utc for dev-env compat
 ]
 
 [tool.ruff.lint.per-file-ignores]

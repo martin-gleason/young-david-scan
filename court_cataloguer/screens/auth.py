@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import tkinter as tk
 
-from .. import auth, database
+from .. import audit, auth, database
 from ..config import (
     APP_TITLE,
     C_BG,
@@ -190,9 +190,11 @@ class AuthScreen(tk.Frame):
             if self._mode == "first_run":
                 auth.first_run_setup(pw1)
                 database.init_db()
+                audit.append_standalone("auth.first_run")
             elif self._mode == "import_plaintext":
                 auth.import_plaintext(pw1)
                 database.init_db()
+                audit.append_standalone("auth.first_run", details={"from": "import_plaintext"})
             else:
                 # unlock or locked
                 try:
@@ -206,6 +208,7 @@ class AuthScreen(tk.Frame):
                         return
                     self._error_var.set(f"Incorrect passphrase. {remaining} attempt(s) remaining.")
                     return
+                audit.append_standalone("auth.unlock_success")
         except Exception as exc:
             log.exception("Auth flow failed")
             self._error_var.set(f"Error: {exc}")
