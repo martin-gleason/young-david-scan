@@ -11,14 +11,16 @@ readme = "README.md"
 license = { text = "Proprietary" }
 
 # Runtime deps — PINNED EXACTLY. Bumping requires a rebuild and a re-test.
-# pysqlcipher3 and cryptography land here in advance of Phase 3 so future
-# imports do not pull in a fresh resolution surprise.
+# sqlcipher3-wheels (laggykiller fork) is the only PyPI package shipping
+# prebuilt Windows wheels with statically linked SQLCipher 4 + OpenSSL
+# as of Jan 2026. Upstream pysqlcipher3 is abandoned; Coleifer's
+# sqlcipher3-binary is Linux-only.
 dependencies = [
     "PyMuPDF==1.24.10",
     "openpyxl==3.1.5",
     "Pillow==10.4.0",
     "cryptography==43.0.1",
-    "pysqlcipher3==1.2.0",
+    "sqlcipher3-wheels==0.5.7",
 ]
 
 [project.optional-dependencies]

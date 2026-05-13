@@ -21,9 +21,14 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 
+# Deterministic 32-byte test key. Real launches derive via PBKDF2; tests
+# bypass that to keep test runs fast (PBKDF2 at 600k iters is ~250ms each).
+TEST_MASTER_KEY = b"\x42" * 32
+
+
 @pytest.fixture
 def fresh_db(tmp_path, monkeypatch):
-    """Per-test isolated DB. Patches the config module's path constants in place."""
+    """Per-test isolated *encrypted* DB. Sets a deterministic master key."""
     from court_cataloguer import config
 
     monkeypatch.setattr(config, "APP_DATA_DIR", tmp_path)
@@ -31,14 +36,15 @@ def fresh_db(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "EXPORTS_DIR", tmp_path / "exports")
     monkeypatch.setattr(config, "LOGS_DIR", tmp_path / "logs")
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "cataloguer.db")
+    monkeypatch.setattr(config, "KEYFILE_PATH", tmp_path / "keyfile.json")
     monkeypatch.setattr(config, "MASTER_XLSX", tmp_path / "exports" / "master_catalogue.xlsx")
 
-    # database.py reads the path constants from config at call time, but it
-    # already imported APP_DATA_DIR / DB_PATH by name — patch those too.
     from court_cataloguer import database
 
     monkeypatch.setattr(database, "APP_DATA_DIR", tmp_path)
     monkeypatch.setattr(database, "DB_PATH", tmp_path / "cataloguer.db")
 
+    database.set_master_key(TEST_MASTER_KEY)
     database.init_db()
-    return tmp_path
+    yield tmp_path
+    database.clear_master_key()

@@ -4,16 +4,18 @@ import sys
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from . import database as db
+from . import auth, database
 from .config import (
     APP_TITLE,
     APP_VERSION,
     C_BG,
     C_PRIMARY,
+    LOCK_TIMEOUT_MIN,
     MIN_HEIGHT,
     MIN_WIDTH,
     WINDOW_SIZE,
 )
+from .idle import IdleLock
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -49,17 +51,6 @@ class CourtDocApp(tk.Tk):
         self.minsize(MIN_WIDTH, MIN_HEIGHT)
         self.configure(bg=C_BG)
 
-        try:
-            db.init_db()
-        except Exception as exc:
-            log.exception("DB init failed")
-            messagebox.showerror(
-                "Database Error",
-                f"Could not initialise the database:\n{exc}\n\n" "The application will now exit.",
-            )
-            self.destroy()
-            sys.exit(1)
-
         _apply_style()
 
         container = tk.Frame(self, bg=C_BG)
@@ -70,6 +61,7 @@ class CourtDocApp(tk.Tk):
         # Import here (not at top) so any missing-package errors surface
         # after the window exists and we can show a real error dialog.
         from .screens import (
+            AuthScreen,
             EntryScreen,
             HomeScreen,
             ImportScreen,
@@ -78,12 +70,26 @@ class CourtDocApp(tk.Tk):
         )
 
         self._frames: dict[str, tk.Frame] = {}
-        for ScreenClass in (HomeScreen, ImportScreen, QueueScreen, EntryScreen, SearchScreen):
+        for ScreenClass in (
+            AuthScreen,
+            HomeScreen,
+            ImportScreen,
+            QueueScreen,
+            EntryScreen,
+            SearchScreen,
+        ):
             frame = ScreenClass(container, self)
             frame.grid(row=0, column=0, sticky="nsew")
             self._frames[ScreenClass.__name__] = frame
 
-        self.show_screen("HomeScreen")
+        # IdleLock is created lazily on first auth success (so the
+        # passphrase screen itself doesn't trigger a re-lock).
+        self._idle_lock: IdleLock | None = None
+
+        # Route to AuthScreen with the right mode for this launch.
+        mode = auth.determine_startup_mode()
+        log.info("Startup mode: %s", mode.value)
+        self.show_screen("AuthScreen", mode=mode.value)
 
     def show_screen(self, name: str, **kwargs) -> None:
         """Raise a screen and call its refresh(**kwargs) if defined."""
@@ -98,6 +104,23 @@ class CourtDocApp(tk.Tk):
                 log.exception("Refresh failed for %s", name)
                 messagebox.showerror("Screen Error", f"Error loading {name}:\n{exc}")
         frame.tkraise()
+
+    def on_auth_success(self) -> None:
+        """Called by AuthScreen after the master key is installed."""
+        # Arm or re-arm the idle lock.
+        if self._idle_lock is None:
+            self._idle_lock = IdleLock(self, timeout_min=LOCK_TIMEOUT_MIN, on_lock=self.lock_now)
+        self._idle_lock.start()
+        self.show_screen("HomeScreen")
+
+    def lock_now(self) -> None:
+        """Clear the master key and route back to AuthScreen as 'locked'."""
+        database.clear_master_key()
+        if self._idle_lock is not None:
+            self._idle_lock.stop()
+        # Defer the screen switch to a Tk idle callback so we don't switch
+        # frames while a different event handler is mid-execution.
+        self.after(0, lambda: self.show_screen("AuthScreen", mode="locked"))
 
 
 def main() -> None:

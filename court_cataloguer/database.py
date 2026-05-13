@@ -1,19 +1,82 @@
 # All SQLite operations. Nothing here touches the UI.
+#
+# Uses sqlcipher3 (statically-linked SQLCipher 4) so every connection
+# is keyed via PRAGMA key. The 32-byte raw master key lives in a module
+# global, set once by the auth flow before any DB call.
+#
+# DO NOT log, print, repr, or otherwise externalise the master key or
+# raise it inside an exception message.
 
-import sqlite3
+from sqlcipher3 import dbapi2 as sqlite
 
 from .config import APP_DATA_DIR, DB_PATH
+
+# ── Key state ─────────────────────────────────────────────────────────────────
+
+_master_key: bytes | None = None
+
+
+class WrongPassphraseError(Exception):
+    """Raised when PRAGMA key probe fails — either wrong key or corrupt DB."""
+
+
+def set_master_key(key: bytes) -> None:
+    """Install the master key used for every subsequent _connect(). Do not log."""
+    global _master_key
+    if not isinstance(key, bytes) or len(key) != 32:
+        raise ValueError("master key must be exactly 32 bytes")
+    _master_key = key
+
+
+def clear_master_key() -> None:
+    """Drop the master key from memory (called on idle-lock or quit)."""
+    global _master_key
+    _master_key = None
+
+
+def has_master_key() -> bool:
+    return _master_key is not None
+
 
 # ── Connection ────────────────────────────────────────────────────────────────
 
 
-def _connect() -> sqlite3.Connection:
-    """Open a connection with Row factory and foreign key support."""
+def _connect() -> sqlite.Connection:
+    """Open a keyed connection with Row factory and FK support.
+
+    Raises WrongPassphraseError if PRAGMA key fails on the first real read.
+    """
+    if _master_key is None:
+        raise RuntimeError("database.set_master_key() must be called before opening a connection")
     APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
+    conn = sqlite.connect(str(DB_PATH))
+    conn.row_factory = sqlite.Row
+    conn.execute(f"PRAGMA key = \"x'{_master_key.hex()}'\"")
     conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
+    except sqlite.DatabaseError as exc:
+        conn.close()
+        # Don't include the key or path in the message.
+        raise WrongPassphraseError("wrong passphrase or corrupt database") from exc
     return conn
+
+
+def rekey(new_key: bytes) -> None:
+    """Change the master key on the existing DB.
+
+    The current master key (set via set_master_key) must already be valid;
+    we verify with a probe read, then run PRAGMA rekey, then update the
+    in-memory key. PRAGMA rekey rewrites every page — slow on large DBs.
+    """
+    if not isinstance(new_key, bytes) or len(new_key) != 32:
+        raise ValueError("new key must be exactly 32 bytes")
+    conn = _connect()  # raises WrongPassphraseError if current key is wrong
+    try:
+        conn.execute(f"PRAGMA rekey = \"x'{new_key.hex()}'\"")
+    finally:
+        conn.close()
+    set_master_key(new_key)
 
 
 # ── Schema ────────────────────────────────────────────────────────────────────

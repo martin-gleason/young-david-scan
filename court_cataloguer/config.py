@@ -13,7 +13,13 @@ ARCHIVE_DIR = APP_DATA_DIR / "archive"
 EXPORTS_DIR = APP_DATA_DIR / "exports"
 LOGS_DIR = APP_DATA_DIR / "logs"
 DB_PATH = APP_DATA_DIR / "cataloguer.db"
+KEYFILE_PATH = APP_DATA_DIR / "keyfile.json"
 MASTER_XLSX = EXPORTS_DIR / "master_catalogue.xlsx"
+
+# Idle auto-lock: minutes of no input before the app returns to the
+# passphrase screen. Override with COURT_DOC_LOCK_MINUTES (useful for
+# kiosk-like deployments or for testing the lock-out path quickly).
+LOCK_TIMEOUT_MIN = int(os.environ.get("COURT_DOC_LOCK_MINUTES", "10"))
 
 # ── Application Info ──────────────────────────────────────────────────────────
 APP_TITLE = "Court Document Cataloguer"

@@ -58,8 +58,12 @@ The app will:
 Run this once from the project folder:
 
 ```
-pyinstaller --onefile --windowed --name "CourtDocCataloguer" main.py
+pyinstaller --onefile --windowed ^
+    --collect-binaries sqlcipher3 --collect-submodules sqlcipher3 ^
+    --name "CourtDocCataloguer" main.py
 ```
+
+The `--collect-binaries sqlcipher3` flag bundles the statically-linked SQLCipher library into the .exe. Without it the built app will fail at first launch with "module not found: sqlcipher3".
 
 The finished executable appears at:
 ```
@@ -87,7 +91,20 @@ dist\CourtDocCataloguer.exe
 | `C:\CourtDocCataloguer\archive\` | Imported PDFs organised by date |
 | `C:\CourtDocCataloguer\exports\master_catalogue.xlsx` | Master spreadsheet |
 
-**Backup recommendation:** Copy `C:\CourtDocCataloguer\` to a network drive or external drive weekly.
+**Backup recommendation:** Copy `C:\CourtDocCataloguer\` to a network drive or external drive weekly. The `cataloguer.db` file is encrypted — backups are safe to store on a less-trusted drive, but **the backup is only useful if you still know the passphrase**.
+
+---
+
+## The Passphrase — read this first
+
+Starting with v1.1, every case record is encrypted on disk with a passphrase you set the first time you launch the app.
+
+- **Choose a passphrase you will not forget.** Write it on paper and store it somewhere only you can reach (locked desk drawer, home safe).
+- **There is no recovery, no reset, no backdoor.** If you lose the passphrase, every record in `cataloguer.db` is permanently unreadable. Even the application authors cannot recover it.
+- **Minimum length: 12 characters.** Longer is better. A short memorable phrase ("blue October chair") is stronger and easier to remember than a short complex one ("X4!9bQ").
+- The first time you launch v1.1 with an older (pre-encryption) database, the app will detect it, ask you to set a passphrase, encrypt the data, and keep a `cataloguer.db.pre-phase3.bak` rollback file. Don't delete that file until you've successfully opened the app a few times with the new passphrase.
+
+The app also **auto-locks after 10 minutes of inactivity**. You'll be asked for the passphrase again to continue. If you walk away from your desk, the data is protected. You can change the timeout by setting the `COURT_DOC_LOCK_MINUTES` environment variable.
 
 ---
 
@@ -132,7 +149,10 @@ After editing, re-run `pyinstaller` to rebuild the .exe.
 | "Cannot open PDF" | The PDF may be corrupt. Skip it and note the filename. |
 | "master_catalogue.xlsx is open in Excel" | Close the file in Excel, then click Export again |
 | App won't start | Check that `C:\CourtDocCataloguer\` exists and is writable |
-| Lost data | Restore `cataloguer.db` from your most recent backup |
+| "Incorrect passphrase" | Try again. After 5 wrong attempts the app quits to slow guessing — re-launch and try again. Caps lock? |
+| Forgot passphrase | There is no recovery. The data is gone. Set a new passphrase on a fresh data dir and start over. |
+| App locked itself while you were on a break | Expected behaviour at 10 min idle. Re-enter your passphrase to continue. Override with `COURT_DOC_LOCK_MINUTES`. |
+| Lost data | Restore `cataloguer.db` AND `keyfile.json` together from a backup. Restoring one without the other is useless. |
 
 ---
 
