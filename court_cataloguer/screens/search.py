@@ -1,10 +1,12 @@
 # Search screen — query cases and inspect their documents.
 
+import contextlib
 import os
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
 
+from .. import audit, utils
 from .. import database as db
 from ..config import (
     C_BG,
@@ -246,13 +248,32 @@ class SearchScreen(tk.Frame):
             matched = [d for d in docs if d["id"] == doc_id]
             if not matched:
                 return
-            path = Path(matched[0]["stored_path"])
+            doc = matched[0]
+            path = Path(doc["stored_path"])
             if not path.exists():
                 messagebox.showwarning("File Not Found", f"Cannot find file:\n{path}")
                 return
             if path.suffix.lower() != ".pdf":
                 messagebox.showwarning("Refusing to Open", f"Stored path is not a PDF:\n{path}")
                 return
+            verified = utils.verify_pdf_integrity(doc)
+            if not verified:
+                proceed = messagebox.askyesno(
+                    "Integrity Warning",
+                    "This PDF's contents differ from what was recorded at import time. "
+                    "The discrepancy has been logged. Open it anyway?",
+                )
+                if not proceed:
+                    return
+            with contextlib.suppress(Exception):
+                # Don't block the open on audit failure; the file logger
+                # still has the event via get_logger.
+                audit.append_standalone(
+                    "doc.open",
+                    target_table="documents",
+                    target_id=doc_id,
+                    details={"verified": verified, "via": "search"},
+                )
             os.startfile(str(path))
 
         btn_row = tk.Frame(popup, bg=C_BG)

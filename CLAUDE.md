@@ -159,6 +159,7 @@ See `/home/marty/.claude/plans/cheeky-seeking-rainbow.md` for the full plan. Sum
 1. **Phase 1 — Scaffolding + this file.** ✅ landed.
 2. **Phase 2 — Data integrity.** ✅ landed. ISO date storage + migration + foreign-key cascade + atomic import. Notes for future sessions: migrations live in `court_cataloguer/migrations/` and are filename-ordered + self-skipping (no versions table); `documents.case_id` is now `ON DELETE RESTRICT` so any future case-delete UI must explicitly handle orphan documents.
 3. **Phase 3 — Encryption + auth.** ✅ landed. SQLCipher via `sqlcipher3-wheels`; passphrase → PBKDF2-HMAC-SHA256 (600k iters, 16-byte salt) → 32-byte raw key fed to `PRAGMA key = "x'<hex>'"`. First-run sets passphrase; idle auto-lock (default 10 min, `COURT_DOC_LOCK_MINUTES` override). A pre-Phase-3 plaintext DB is auto-migrated on first launch and the original preserved as `cataloguer.db.pre-phase3.bak`. **Losing the passphrase loses the data** — no recovery.
+4. **Phase 4 — Audit + integrity.** ✅ landed. `audit_log` table with HMAC-chained rows (audit key = HKDF-Expand-SHA256 of the master key). Audited actions: `auth.first_run`, `auth.unlock_success`, `auth.locked`, `auth.rekey`, `case.create`, `doc.import`, `doc.complete`, `doc.skip`, `doc.open`, `export.excel`, `integrity.mismatch`. Wrong-passphrase attempts go to the file log only (no key → no signature possible). `documents` gained `sha256` / `imported_by` / `import_machine` columns. PDFs are hashed on import and verified on open; mismatch is logged + audited + presents an override modal (re-scans happen — we record the event, don't block work). Audit log review is gated behind `COURT_DOC_AUDIT=1`. **Audit log shares the master key**, so losing the passphrase loses the audit trail too. Acceptable per threat model.
 4. **Phase 4 — Audit + integrity.** HMAC-chained `audit_log` table; per-document SHA-256; chain-of-custody fields.
 5. **Phase 5 — Workflow + UI.** Edit completed records, un-skip flow, multi-line notes, Courtroom blank default, skip confirmation, threading for long ops, keyboard shortcuts.
 6. **Phase 6 — Idiomatic cleanup.** Mostly done in Phase 1; remainder is opportunistic.
@@ -177,6 +178,7 @@ See `/home/marty/.claude/plans/cheeky-seeking-rainbow.md` for the full plan. Sum
 - `archive/<YYYY-MM-DD>/*.pdf` — imported PDFs. NOT encrypted today — document BitLocker or a separately-encrypted folder as deployment guidance.
 - `exports/master_catalogue.xlsx` — last Excel export. Plaintext.
 - `logs/app.log` — rotating log (5 MB × 5). PII redaction filter applied; still, don't hand the log to anyone outside court staff.
+- `audit_log` (inside `cataloguer.db`) — HMAC-chained tamper-evident record of consequential actions. Read via the AuditLog screen (set `COURT_DOC_AUDIT=1` to reveal the button). The chain re-anchors at every `auth.rekey` — `verify_chain()` is meaningful within an epoch between rekeys.
 
 ## What NOT to do without asking
 

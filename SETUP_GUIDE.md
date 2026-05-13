@@ -108,6 +108,16 @@ The app also **auto-locks after 10 minutes of inactivity**. You'll be asked for 
 
 ---
 
+## The Audit Log
+
+Starting with v1.2, the app keeps a tamper-evident record of every consequential action — case creation, document import, PDF opens, Excel exports, sign-ins, idle-locks. Each entry is cryptographically signed so that anyone editing the database file directly (with a text editor or SQL tool) will break the signature chain and `Verify Chain` in the app will surface exactly which row was altered.
+
+The audit log is **not visible in the normal UI** — you'd never need it for daily work. To inspect it, set the environment variable `COURT_DOC_AUDIT=1` before launching the app. An "Audit Log" button will appear on the Home screen. The screen shows the latest 500 events and has a `Verify Chain` button.
+
+What the audit log proves: every recorded action happened under your passphrase. What it does NOT prove: the actual content of cases or PDFs (those are in the regular tables). Like the catalogue itself, the audit log is encrypted with your passphrase — losing the passphrase loses both.
+
+---
+
 ## Daily Workflow (for staff)
 
 1. Scan petitions at the Toshiba/Xerox machine → save to USB drive

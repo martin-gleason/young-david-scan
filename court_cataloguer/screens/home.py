@@ -4,8 +4,8 @@ import os
 import tkinter as tk
 from tkinter import messagebox
 
+from .. import audit, utils
 from .. import database as db
-from .. import utils
 from ..config import (
     APP_TITLE,
     C_BG,
@@ -62,6 +62,18 @@ class HomeScreen(tk.Frame):
             b = btn(grid, label, cmd, primary=is_primary, width=26)
             b.grid(row=i // 2, column=i % 2, padx=16, pady=10)
 
+        # Audit log access is gated by an env flag so the navigator's normal
+        # UI stays uncluttered. Set COURT_DOC_AUDIT=1 to reveal it.
+        if os.environ.get("COURT_DOC_AUDIT") == "1":
+            audit_btn = btn(
+                grid,
+                "🔒  Audit Log",
+                lambda: self.app.show_screen("AuditLogScreen"),
+                primary=False,
+                width=26,
+            )
+            audit_btn.grid(row=2, column=0, columnspan=2, padx=16, pady=10)
+
         self._status_var = tk.StringVar()
         tk.Label(self, textvariable=self._status_var, bg=C_BG, fg=C_MUTED, font=FONT_SMALL).pack(
             side=tk.BOTTOM, pady=6
@@ -78,6 +90,17 @@ class HomeScreen(tk.Frame):
     def _export_excel(self):
         try:
             path = utils.export_master_xlsx()
+            # Audit the export — the highest-value exfiltration event in the app.
+            try:
+                audit.append_standalone(
+                    "export.excel",
+                    details={
+                        "cases_count": len(db.get_all_cases()),
+                        "docs_count": len(db.get_all_documents()),
+                    },
+                )
+            except Exception:
+                log.exception("Failed to append export.excel audit row")
             if messagebox.askyesno(
                 "Export Complete",
                 f"Master spreadsheet saved to:\n{path}\n\nOpen it now?",

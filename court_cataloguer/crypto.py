@@ -22,10 +22,34 @@ SALT_BYTES = 16
 KEY_BYTES = 32
 KEYFILE_VERSION = 1
 KDF_NAME = "pbkdf2-hmac-sha256"
+AUDIT_KEY_INFO = b"audit-hmac-v1"
+AUDIT_KEY_BYTES = 32
 
 
 class KeyfileError(ValueError):
     """Raised when the keyfile is missing, malformed, or uses an unknown KDF."""
+
+
+def derive_audit_key(master_key: bytes) -> bytes:
+    """Derive a dedicated audit-HMAC key from the master encryption key.
+
+    Uses HKDF-Expand-SHA256 with a stable `info` label so the two keys can
+    rotate independently in the future. The master key is treated as already-
+    uniform key material (it came out of PBKDF2), so we skip HKDF-Extract.
+
+    Same call boundary as derive_key: DO NOT log, print, repr, or persist.
+    """
+    if not isinstance(master_key, bytes) or len(master_key) != KEY_BYTES:
+        raise ValueError(f"master key must be {KEY_BYTES} bytes, got {len(master_key)}")
+    # Lazy import: cryptography is a heavy dep, only audit needs it today.
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDFExpand
+
+    return HKDFExpand(
+        algorithm=hashes.SHA256(),
+        length=AUDIT_KEY_BYTES,
+        info=AUDIT_KEY_INFO,
+    ).derive(master_key)
 
 
 @dataclass(frozen=True)

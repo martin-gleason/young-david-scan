@@ -4,7 +4,7 @@ import sys
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from . import auth, database
+from . import audit, auth, database
 from .config import (
     APP_TITLE,
     APP_VERSION,
@@ -61,6 +61,7 @@ class CourtDocApp(tk.Tk):
         # Import here (not at top) so any missing-package errors surface
         # after the window exists and we can show a real error dialog.
         from .screens import (
+            AuditLogScreen,
             AuthScreen,
             EntryScreen,
             HomeScreen,
@@ -77,6 +78,7 @@ class CourtDocApp(tk.Tk):
             QueueScreen,
             EntryScreen,
             SearchScreen,
+            AuditLogScreen,
         ):
             frame = ScreenClass(container, self)
             frame.grid(row=0, column=0, sticky="nsew")
@@ -115,6 +117,12 @@ class CourtDocApp(tk.Tk):
 
     def lock_now(self) -> None:
         """Clear the master key and route back to AuthScreen as 'locked'."""
+        # Append the audit row BEFORE clearing the key — once cleared we
+        # can't sign anything.
+        try:
+            audit.append_standalone("auth.locked")
+        except Exception:
+            log.exception("Failed to append auth.locked audit row")
         database.clear_master_key()
         if self._idle_lock is not None:
             self._idle_lock.stop()
