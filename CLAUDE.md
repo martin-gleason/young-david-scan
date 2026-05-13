@@ -94,7 +94,7 @@ young-david-scan/
 - **No bare `except:`** and **no `except Exception: pass`**. Minimum acceptable handler is `log.exception("…")`. Bare swallows have already cost us debugging time once.
 - **No `print()`** in non-test code. Use the module logger.
 - **All DB writes are parameterised**. Never interpolate user data into SQL with f-strings.
-- **All dates persisted as `YYYY-MM-DD`** (ISO 8601). MM/DD/YYYY is a UI-boundary concern only. (Currently violated by existing data — Phase 2 migrates.)
+- **All dates persisted as `YYYY-MM-DD`** (ISO 8601). MM/DD/YYYY is a UI-boundary concern only. Parse/format helpers live in `court_cataloguer/dates.py` — use `parse_us_date` and `format_us_date`, don't reinvent.
 - **PRAGMA `foreign_keys = ON`** is always set on connect. Never disable it.
 
 ---
@@ -153,8 +153,8 @@ pyinstaller --onefile --windowed --name CourtDocCataloguer main.py
 
 See `/home/marty/.claude/plans/cheeky-seeking-rainbow.md` for the full plan. Summary:
 
-1. **Phase 1 — Scaffolding + this file.** ← we are here / just landed.
-2. **Phase 2 — Data integrity.** ISO date storage + migration + foreign-key cascade + atomic import. Must precede encryption.
+1. **Phase 1 — Scaffolding + this file.** ✅ landed.
+2. **Phase 2 — Data integrity.** ✅ landed. ISO date storage + migration + foreign-key cascade + atomic import. Notes for future sessions: migrations live in `court_cataloguer/migrations/` and are filename-ordered + self-skipping (no versions table); `documents.case_id` is now `ON DELETE RESTRICT` so any future case-delete UI must explicitly handle orphan documents.
 3. **Phase 3 — Encryption + auth.** SQLCipher via `pysqlcipher3`; passphrase → PBKDF2-HMAC-SHA256 (600k iters) → 32-byte key. First-run passphrase setup; idle auto-lock.
 4. **Phase 4 — Audit + integrity.** HMAC-chained `audit_log` table; per-document SHA-256; chain-of-custody fields.
 5. **Phase 5 — Workflow + UI.** Edit completed records, un-skip flow, multi-line notes, Courtroom blank default, skip confirmation, threading for long ops, keyboard shortcuts.

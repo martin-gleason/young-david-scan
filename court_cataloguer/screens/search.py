@@ -18,6 +18,7 @@ from ..config import (
     FONT_LABEL,
     FONT_SMALL,
 )
+from ..dates import DateParseError, format_us_date, parse_us_date
 from ._shared import btn, entry, make_header
 
 
@@ -107,12 +108,21 @@ class SearchScreen(tk.Frame):
         self._run_search()
 
     def _run_search(self):
+        date_from, date_to = self._parsed_date_bounds()
+        if (
+            date_from is None
+            and date_to is None
+            and (self._fields["date_from"].get().strip() or self._fields["date_to"].get().strip())
+        ):
+            # Bad input already reported via _count_var; stop.
+            return
+
         results = db.search_cases(
             last_name=self._fields["last_name"].get().strip(),
             docket=self._fields["docket"].get().strip(),
             courtroom=self._fields["courtroom"].get().strip(),
-            date_from=self._fields["date_from"].get().strip(),
-            date_to=self._fields["date_to"].get().strip(),
+            date_from=date_from or "",
+            date_to=date_to or "",
         )
         self._tree.delete(*self._tree.get_children())
         self._count_var.set(f"{len(results)} case(s) found")
@@ -128,12 +138,29 @@ class SearchScreen(tk.Frame):
                     case["last_name"],
                     case["courtroom"],
                     case["docket_number"],
-                    case["case_date"],
+                    format_us_date(case["case_date"]),
                     len(docs),
                 ),
                 tags=(tag,),
             )
         self._tree.tag_configure("alt", background=C_ROW_ALT)
+
+    def _parsed_date_bounds(self) -> tuple[str | None, str | None]:
+        """Parse the date_from / date_to entries into ISO. Returns (from, to).
+
+        Either side may be empty (None). If either side is non-empty but
+        unparseable, sets the count label to an error message and returns
+        (None, None) so the caller can abort the search.
+        """
+        raw_from = self._fields["date_from"].get().strip()
+        raw_to = self._fields["date_to"].get().strip()
+        try:
+            iso_from = parse_us_date(raw_from) if raw_from else None
+            iso_to = parse_us_date(raw_to) if raw_to else None
+        except DateParseError as exc:
+            self._count_var.set(f"Date error: {exc}")
+            return None, None
+        return iso_from, iso_to
 
     def _clear_search(self):
         for w in self._fields.values():
@@ -168,7 +195,7 @@ class SearchScreen(tk.Frame):
         for label, val in [
             ("Courtroom", case["courtroom"]),
             ("Docket #", case["docket_number"]),
-            ("Case Date", case["case_date"]),
+            ("Case Date", format_us_date(case["case_date"])),
             ("Created", case["created_at"]),
             ("Notes", case.get("notes", "")),
         ]:

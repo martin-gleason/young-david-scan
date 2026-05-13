@@ -20,7 +20,9 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """Create tables if they don't exist. Safe to call on every launch."""
+    """Create tables if they don't exist, then apply any pending migrations.
+    Safe to call on every launch.
+    """
     with _connect() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS cases (
@@ -46,9 +48,19 @@ def init_db() -> None:
                 status            TEXT    NOT NULL DEFAULT 'pending',
                 imported_at       TEXT    NOT NULL
                                       DEFAULT (datetime('now','localtime')),
-                FOREIGN KEY (case_id) REFERENCES cases(id)
+                FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE RESTRICT
             )
         """)
+        conn.commit()
+
+    # Migrations are imported here (not at module top) to avoid a circular
+    # import: migrations modules import from .dates / .logging_setup which
+    # are fine, but downstream code may import this database module before
+    # the migrations package is importable in test fixtures.
+    from . import migrations
+
+    with _connect() as conn:
+        migrations.apply_all(conn, DB_PATH)
         conn.commit()
 
 
