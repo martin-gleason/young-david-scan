@@ -1,16 +1,23 @@
 """Migration tests — both 001 (dates) and 002 (FK), plus apply_all idempotency."""
 
-import sqlite3
-
 import pytest
+from sqlcipher3 import dbapi2 as sqlite
 
 from court_cataloguer import database as db
 from court_cataloguer.migrations import apply_all
+from tests.conftest import TEST_MASTER_KEY
 
 
 def _raw_conn(path):
-    conn = sqlite3.connect(str(path))
-    conn.row_factory = sqlite3.Row
+    """Open a SQLCipher connection directly with the deterministic test key.
+
+    Used to seed rows that bypass the normal app validation (e.g. planting
+    MM/DD/YYYY rows that the new validator would reject).
+    """
+    conn = sqlite.connect(str(path))
+    conn.row_factory = sqlite.Row
+    conn.execute(f"PRAGMA key = \"x'{TEST_MASTER_KEY.hex()}'\"")
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -71,6 +78,6 @@ def test_002_blocks_deletion_of_case_with_documents(fresh_db):
         conn.commit()
 
     # Now try to delete the case — FK RESTRICT should forbid it.
-    with pytest.raises(sqlite3.IntegrityError), db._connect() as conn:
+    with pytest.raises(sqlite.IntegrityError), db._connect() as conn:
         conn.execute("DELETE FROM cases WHERE id = ?", (case_id,))
         conn.commit()

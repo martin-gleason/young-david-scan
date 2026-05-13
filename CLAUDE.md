@@ -143,8 +143,11 @@ ruff format --check .
 # Types:
 mypy court_cataloguer
 
-# Build .exe for staff machine (Phase 3+ will add a SQLCipher hook):
-pyinstaller --onefile --windowed --name CourtDocCataloguer main.py
+# Build .exe for staff machine. The --collect-binaries flag bundles
+# the statically-linked SQLCipher DLL inside sqlcipher3-wheels.
+pyinstaller --onefile --windowed \
+    --collect-binaries sqlcipher3 --collect-submodules sqlcipher3 \
+    --name CourtDocCataloguer main.py
 ```
 
 ---
@@ -155,13 +158,25 @@ See `/home/marty/.claude/plans/cheeky-seeking-rainbow.md` for the full plan. Sum
 
 1. **Phase 1 — Scaffolding + this file.** ✅ landed.
 2. **Phase 2 — Data integrity.** ✅ landed. ISO date storage + migration + foreign-key cascade + atomic import. Notes for future sessions: migrations live in `court_cataloguer/migrations/` and are filename-ordered + self-skipping (no versions table); `documents.case_id` is now `ON DELETE RESTRICT` so any future case-delete UI must explicitly handle orphan documents.
-3. **Phase 3 — Encryption + auth.** SQLCipher via `pysqlcipher3`; passphrase → PBKDF2-HMAC-SHA256 (600k iters) → 32-byte key. First-run passphrase setup; idle auto-lock.
+3. **Phase 3 — Encryption + auth.** ✅ landed. SQLCipher via `sqlcipher3-wheels`; passphrase → PBKDF2-HMAC-SHA256 (600k iters, 16-byte salt) → 32-byte raw key fed to `PRAGMA key = "x'<hex>'"`. First-run sets passphrase; idle auto-lock (default 10 min, `COURT_DOC_LOCK_MINUTES` override). A pre-Phase-3 plaintext DB is auto-migrated on first launch and the original preserved as `cataloguer.db.pre-phase3.bak`. **Losing the passphrase loses the data** — no recovery.
 4. **Phase 4 — Audit + integrity.** HMAC-chained `audit_log` table; per-document SHA-256; chain-of-custody fields.
 5. **Phase 5 — Workflow + UI.** Edit completed records, un-skip flow, multi-line notes, Courtroom blank default, skip confirmation, threading for long ops, keyboard shortcuts.
 6. **Phase 6 — Idiomatic cleanup.** Mostly done in Phase 1; remainder is opportunistic.
 7. **Phase 7 — Deployment hardening.** Code signing, encrypted backups, no-network startup assertion, BitLocker as deploy precondition.
 
 ---
+
+## What lives in the data directory
+
+`C:\CourtDocCataloguer\` (or `$COURT_DOC_DIR`) holds:
+
+- `cataloguer.db` — SQLCipher-encrypted SQLite. Unreadable without the passphrase. **No recovery if the passphrase is lost.**
+- `keyfile.json` — NON-secret KDF parameters (version, kdf name, iter count, base64 salt). Used to re-derive the key from the passphrase. Required to unlock. If you lose this file but still have the passphrase, you've lost the data anyway because re-deriving without the original salt produces a different key.
+- `cataloguer.db.pre-phase3.bak` — rollback copy of the pre-encryption plaintext DB, written automatically the first time a Phase-2 DB is auto-migrated. Safe to delete once you're confident the migration worked.
+- `cataloguer.db.pre-migrations.bak` — rollback before Phase-2-style migrations ran (created from the first-launch state).
+- `archive/<YYYY-MM-DD>/*.pdf` — imported PDFs. NOT encrypted today — document BitLocker or a separately-encrypted folder as deployment guidance.
+- `exports/master_catalogue.xlsx` — last Excel export. Plaintext.
+- `logs/app.log` — rotating log (5 MB × 5). PII redaction filter applied; still, don't hand the log to anyone outside court staff.
 
 ## What NOT to do without asking
 
