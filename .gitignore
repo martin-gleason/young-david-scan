@@ -1,0 +1,42 @@
+# Data — NEVER commit. Real PII lives in these.
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.pdf
+*.xlsx
+.env
+
+# Per-user dev environment overrides
+data/
+court-data/
+.tmp-court-data/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "court-cataloguer"
+version = "1.0.0"
+description = "Court Document Cataloguer for Cook County dependency/neglect court."
+requires-python = ">=3.11,<3.13"
+readme = "README.md"
+license = { text = "Proprietary" }
+
+# Runtime deps — PINNED EXACTLY. Bumping requires a rebuild and a re-test.
+# pysqlcipher3 and cryptography land here in advance of Phase 3 so future
+# imports do not pull in a fresh resolution surprise.
+dependencies = [
+    "PyMuPDF==1.24.10",
+    "openpyxl==3.1.5",
+    "Pillow==10.4.0",
+    "cryptography==43.0.1",
+    "pysqlcipher3==1.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.3",
+    "pytest-cov==5.0.0",
+    "ruff==0.6.9",
+    "mypy==1.11.2",
+    "pyinstaller==6.10.0",
+]
+
+[project.scripts]
+court-cataloguer = "court_cataloguer.app:main"
+
+[tool.setuptools.packages.find]
+include = ["court_cataloguer*"]
+exclude = ["tests*"]
+
+# ── Ruff ──────────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E", "W",     # pycodestyle
+    "F",          # pyflakes
+    "I",          # isort
+    "UP",         # pyupgrade (catches typing.List etc.)
+    "B",          # flake8-bugbear
+    "SIM",        # flake8-simplify
+]
+ignore = [
+    "E501",   # line length handled by formatter
+    "E731",   # lambda assignments are common in Tk callbacks
+    "SIM108", # explicit if/else is clearer than ternaries for Tk command capture
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "B011",   # allow `assert False` in tests
+    "SIM300", # `assert actual == expected` is the canonical pytest style
+]
+
+# ── Mypy ──────────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "fitz",            # PyMuPDF
+    "PIL.*",
+    "openpyxl.*",
+    "pysqlcipher3.*",
+]
+ignore_missing_imports = true
+
+# ── Pytest ────────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
