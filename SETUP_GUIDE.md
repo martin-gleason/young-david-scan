@@ -1,6 +1,8 @@
 # Setup & Build Guide
 ## Court Document Cataloguer — Dependency/Neglect Court
 
+> **Are you a beta tester?** This guide is the long version intended for whoever builds and deploys the app. If you just got handed a USB drive and want to know how to run it, read **`BETA_TEST.md`** instead.
+
 ---
 
 ## What This App Does
@@ -58,12 +60,12 @@ The app will:
 Run this once from the project folder:
 
 ```
-pyinstaller --onefile --windowed ^
-    --collect-binaries sqlcipher3 --collect-submodules sqlcipher3 ^
-    --name "CourtDocCataloguer" main.py
+pyinstaller packaging\CourtDocCataloguer.spec --clean --noconfirm
 ```
 
-The `--collect-binaries sqlcipher3` flag bundles the statically-linked SQLCipher library into the .exe. Without it the built app will fail at first launch with "module not found: sqlcipher3".
+The spec file (`packaging/CourtDocCataloguer.spec`) bundles the statically-linked SQLCipher library plus PyMuPDF's native extensions, and is configured for the multi-file output we ship (not `--onefile` — see the comment in the spec for why). The resulting `dist/CourtDocCataloguer/` folder is the portable bundle; drop it next to `packaging/launch.bat` on a USB drive and you have a working portable install.
+
+For the automated build, see `.github/workflows/build-release.yml` — every push to `main` triggers a Windows-runner build that uploads the bundled zip as an Actions artifact. Tagged pushes (`v1.2.0` etc.) also create a GitHub Release with the zip attached.
 
 The finished executable appears at:
 ```

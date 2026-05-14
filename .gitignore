@@ -29,10 +29,12 @@ htmlcov/
 venv/
 env/
 
-# PyInstaller
+# PyInstaller transient output
 build/
 dist/
-*.spec
+/*.spec
+# but DO commit our checked-in spec under packaging/
+!packaging/*.spec
 
 # Editor / OS
 .vscode/
