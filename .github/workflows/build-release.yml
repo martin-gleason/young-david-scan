@@ -11,7 +11,7 @@ name: Build portable Windows .exe
 
 on:
   push:
-    branches: [main]
+    branches: [main, beta/portable-exe]
     tags: ["v*"]
   workflow_dispatch:
 
