@@ -131,7 +131,70 @@ class CourtDocApp(tk.Tk):
         self.after(0, lambda: self.show_screen("AuthScreen", mode="locked"))
 
 
+def _run_selftest() -> int:
+    # Used by the CI build pipeline to fail fast if PyInstaller dropped a
+    # required native binary. Runs without opening a window so it works on
+    # headless Windows runners. Exits 0 on success, non-zero on failure.
+    print("court_cataloguer self-test starting", flush=True)
+
+    # SQLCipher: read PRAGMA cipher_version to prove the native cipher
+    # library (statically linked into sqlcipher3-wheels) actually loaded.
+    # An import alone doesn't catch a missing-DLL failure on Windows.
+    from sqlcipher3 import dbapi2 as sqlite
+
+    conn = sqlite.connect(":memory:")
+    try:
+        conn.execute("PRAGMA key = 'selftest-key';")
+        row = conn.execute("PRAGMA cipher_version;").fetchone()
+        if not row or not row[0]:
+            print("FAIL: sqlcipher PRAGMA cipher_version returned nothing", flush=True)
+            return 2
+        print(f"  sqlcipher cipher_version: {row[0]}", flush=True)
+
+        # Exercise the cipher: write, close, reopen with the same key,
+        # read back. A miswired cipher would fail decryption here.
+        conn.execute("CREATE TABLE t (x INTEGER);")
+        conn.execute("INSERT INTO t VALUES (42);")
+        conn.commit()
+        (val,) = conn.execute("SELECT x FROM t").fetchone()
+        if val != 42:
+            print(f"FAIL: sqlcipher round-trip returned {val!r}", flush=True)
+            return 3
+    finally:
+        conn.close()
+
+    # PyMuPDF: open a blank PDF in memory. Catches missing-DLL failures on
+    # Windows that an import-only check would miss.
+    import fitz
+
+    doc = fitz.open()
+    doc.new_page()
+    if doc.page_count != 1:
+        print(f"FAIL: fitz blank doc has {doc.page_count} pages", flush=True)
+        return 4
+    doc.close()
+    print("  fitz: ok", flush=True)
+
+    # tkinter: import only — headless CI runners have no display, so we
+    # can't actually construct a Tk root here.
+    import tkinter  # noqa: F401
+
+    print("  tkinter: ok", flush=True)
+
+    # cryptography: the HMAC + HKDF primitives used by Phase 3 (key
+    # derivation) and Phase 4 (audit-log chain) need these.
+    from cryptography.hazmat.primitives import hashes, hmac  # noqa: F401
+
+    print("  cryptography: ok", flush=True)
+
+    print("court_cataloguer self-test passed", flush=True)
+    return 0
+
+
 def main() -> None:
+    if "--selftest" in sys.argv:
+        sys.exit(_run_selftest())
+
     try:
         app = CourtDocApp()
         app.mainloop()

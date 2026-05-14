@@ -143,11 +143,16 @@ ruff format --check .
 # Types:
 mypy court_cataloguer
 
-# Build .exe for staff machine. The --collect-binaries flag bundles
-# the statically-linked SQLCipher DLL inside sqlcipher3-wheels.
-pyinstaller --onefile --windowed \
-    --collect-binaries sqlcipher3 --collect-submodules sqlcipher3 \
-    --name CourtDocCataloguer main.py
+# Build .exe for staff machine. Uses the checked-in spec file at
+# packaging/CourtDocCataloguer.spec — produces a single-file
+# CourtDocCataloguer.exe with the bundled Python runtime, SQLCipher,
+# PyMuPDF, and tkinter. The .exe is self-locating: its data dir
+# defaults to a `data/` folder next to the .exe, so dropping it on a
+# USB drive gives a portable install with no launcher script.
+pyinstaller packaging\CourtDocCataloguer.spec --clean --noconfirm
+
+# Smoke-test the produced .exe (CI does this automatically):
+dist\CourtDocCataloguer.exe --selftest
 ```
 
 ---
@@ -169,7 +174,13 @@ See `/home/marty/.claude/plans/cheeky-seeking-rainbow.md` for the full plan. Sum
 
 ## What lives in the data directory
 
-`C:\CourtDocCataloguer\` (or `$COURT_DOC_DIR`) holds:
+Default location depends on launch mode (see `court_cataloguer.config._default_data_dir`):
+
+- **Frozen `.exe`** (the portable build): `<exe-dir>\data\` — next to the .exe on the USB drive.
+- **Source / dev** (`python main.py`): `C:\CourtDocCataloguer\` — preserves the pre-portable default.
+- **Either case, override:** `$COURT_DOC_DIR` always wins.
+
+Whichever path is in use holds:
 
 - `cataloguer.db` — SQLCipher-encrypted SQLite. Unreadable without the passphrase. **No recovery if the passphrase is lost.**
 - `keyfile.json` — NON-secret KDF parameters (version, kdf name, iter count, base64 salt). Used to re-derive the key from the passphrase. Required to unlock. If you lose this file but still have the passphrase, you've lost the data anyway because re-deriving without the original salt produces a different key.

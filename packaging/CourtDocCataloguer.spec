@@ -1,30 +1,39 @@
-# PyInstaller spec for the Court Document Cataloguer beta build.
+# PyInstaller spec for the Court Document Cataloguer.
 #
 # Build with:
-#   pyinstaller packaging/CourtDocCataloguer.spec
+#   pyinstaller packaging/CourtDocCataloguer.spec --clean --noconfirm
 #
-# Produces dist/CourtDocCataloguer/CourtDocCataloguer.exe plus the runtime
-# directory next to it. We deliberately do NOT use --onefile because
-# unpacking sqlcipher3's native extension to a temp dir on every launch
-# slows first-run by 2-3s and can trip antivirus heuristics. The
-# multi-file build also makes incident response easier (the navigator can
-# zip the whole folder if something goes wrong without picking files
-# out of an opaque single-file archive).
+# Produces a SINGLE-FILE executable at dist/CourtDocCataloguer.exe. The .exe
+# is self-locating: at runtime it reads sys.executable, treats the directory
+# the .exe lives in as the install root, and creates a "data/" folder next
+# to itself for the database, archive, audit log, etc. (see
+# court_cataloguer/config._default_data_dir).
+#
+# Trade-offs accepted by going single-file:
+#   - First-launch cost: ~2–3 s while the PyInstaller bootloader unpacks the
+#     bundle to %TEMP%\_MEIxxxx and starts the bundled Python interpreter.
+#     Subsequent launches in the same session reuse the unpack.
+#   - AV heuristics flag single-file PyInstaller bundles more often than
+#     onedir bundles. We mitigate with: no UPX, no console window, a build
+#     produced by a clean CI runner. Code-signing certificate is the real
+#     fix and is on the Phase 7 roadmap.
+#   - Harder to inspect when something goes wrong — the bundle is opaque
+#     until it unpacks. Acceptable cost for "one file on a USB drive."
+#
+# The CLAUDE.md guidance previously documented the onedir choice; that
+# write-up is now stale and is updated in the same change as this spec.
 
 from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
 
 # sqlcipher3-wheels statically links SQLCipher + OpenSSL into the
-# sqlcipher3 native extension. --collect-binaries / collect_dynamic_libs
-# pulls the .pyd in. --collect-submodules picks up dbapi2 etc.
+# sqlcipher3 native extension. collect_dynamic_libs pulls the .pyd in;
+# collect_submodules picks up dbapi2 etc.
 binaries = collect_dynamic_libs("sqlcipher3")
 hiddenimports = collect_submodules("sqlcipher3")
 
 # PyMuPDF (fitz) loads its native lib at import time; same treatment.
 binaries += collect_dynamic_libs("fitz")
 hiddenimports += collect_submodules("fitz")
-
-# Pillow / openpyxl are pure-Python at the surface; PyInstaller's dep
-# walker handles them. Listed here for documentation.
 
 block_cipher = None
 
@@ -38,7 +47,7 @@ a = Analysis(
     hookspath=[],
     runtime_hooks=[],
     excludes=[
-        # Pull these out of the bundle to shave size — we don't use any of them.
+        # Shave bundle size — none of these are used at runtime.
         "tkinter.test",
         "test",
         "unittest",
@@ -52,30 +61,25 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# Single-file build: binaries, zipfiles, and datas go straight into the EXE
+# (no separate COLLECT step). exclude_binaries defaults to False here.
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     [],
-    exclude_binaries=True,
     name="CourtDocCataloguer",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,             # UPX trips antivirus; not worth the size savings
-    console=False,          # GUI app — no console window
+    upx=False,           # UPX trips antivirus; not worth the size savings
+    upx_exclude=[],
+    runtime_tmpdir=None,  # Use the OS default (%TEMP%) for bundle unpack
+    console=False,        # GUI app — no console window
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name="CourtDocCataloguer",
 )
