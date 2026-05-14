@@ -35,6 +35,14 @@ hiddenimports = collect_submodules("sqlcipher3")
 binaries += collect_dynamic_libs("fitz")
 hiddenimports += collect_submodules("fitz")
 
+# court_cataloguer.migrations — submodules are loaded dynamically by
+# importlib.import_module(f"...{name}") from migrations/__init__.py, so
+# PyInstaller's static-import analyzer can't see them. Without this
+# collect_submodules they'd be omitted from the PYZ archive and the
+# audit_log table would never get created on first run. Lesson learned
+# at the cost of one broken beta build.
+hiddenimports += collect_submodules("court_cataloguer.migrations")
+
 block_cipher = None
 
 

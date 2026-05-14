@@ -42,9 +42,33 @@ jobs:
 
       - name: Self-test the .exe
         # Runs the bundled app with --selftest, which imports sqlcipher3 +
-        # fitz + tkinter + cryptography and exercises the SQLCipher round
-        # trip. Fails the job if any native library failed to bundle.
-        run: dist/CourtDocCataloguer.exe --selftest
+        # fitz + tkinter + cryptography, exercises the SQLCipher round
+        # trip, and runs the full first-run / unlock flow against a tmp
+        # data dir. Fails the job if anything in the bundle is broken.
+        #
+        # We use Start-Process explicitly because the .exe is built with
+        # console=False (Windows GUI subsystem). A bare `run:` invocation
+        # under pwsh does NOT reliably propagate the exit code of a
+        # windowed Win32 app — the previous build silently reported green
+        # while the selftest was exiting with code 6. Start-Process -Wait
+        # -PassThru returns a process object whose ExitCode we can check.
+        shell: pwsh
+        run: |
+          $proc = Start-Process `
+              -FilePath "dist/CourtDocCataloguer.exe" `
+              -ArgumentList "--selftest" `
+              -Wait -PassThru -NoNewWindow `
+              -RedirectStandardOutput selftest.out `
+              -RedirectStandardError selftest.err
+          Write-Host "--- selftest stdout ---"
+          if (Test-Path selftest.out) { Get-Content selftest.out }
+          Write-Host "--- selftest stderr ---"
+          if (Test-Path selftest.err) { Get-Content selftest.err }
+          Write-Host "--- selftest exited with code $($proc.ExitCode) ---"
+          if ($proc.ExitCode -ne 0) {
+            Write-Host "::error::selftest failed with exit code $($proc.ExitCode)"
+            exit $proc.ExitCode
+          }
 
       - name: Stage the portable bundle
         # Drop the beta-tester README next to the .exe so the zip is
