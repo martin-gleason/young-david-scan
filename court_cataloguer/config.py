@@ -3,12 +3,26 @@
 # (useful for tests and for dev work on non-Windows machines).
 
 import os
+import sys
 from pathlib import Path
+
+
+def _default_data_dir() -> Path:
+    # When running from a PyInstaller-frozen build, default the data dir
+    # to a "data" folder next to the .exe — drop the .exe on a USB drive
+    # and everything (DB, archive, audit log) lives on the same USB. This
+    # is what makes the single-file build truly portable without a wrapper
+    # launcher. From source (dev), keep the Windows install path so
+    # existing developer environments don't change behaviour.
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent / "data"
+    return Path("C:/CourtDocCataloguer")
+
 
 # ── Application Data Directory ────────────────────────────────────────────────
 # All data (database, archived PDFs, exports) live here.
 # This folder is created automatically on first run.
-APP_DATA_DIR = Path(os.environ.get("COURT_DOC_DIR", "C:/CourtDocCataloguer"))
+APP_DATA_DIR = Path(os.environ.get("COURT_DOC_DIR", str(_default_data_dir())))
 ARCHIVE_DIR = APP_DATA_DIR / "archive"
 EXPORTS_DIR = APP_DATA_DIR / "exports"
 LOGS_DIR = APP_DATA_DIR / "logs"

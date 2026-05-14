@@ -1,13 +1,16 @@
 name: Build portable Windows .exe
 
-# Builds the Court Document Cataloguer as a portable Windows executable
-# bundle and uploads it as a workflow artifact. Triggered:
+# Builds the Court Document Cataloguer as a single-file Windows executable
+# and uploads it as a workflow artifact. Triggered:
 #   - on every push to main (so each merge produces a downloadable build)
 #   - manually via "Run workflow" (workflow_dispatch)
 #   - on tag push v* (also creates a Release with the zip attached)
 #
 # The build runs on windows-latest because PyInstaller is platform-specific
-# (a Linux runner produces an ELF, not a .exe).
+# (a Linux runner produces an ELF, not a .exe). After building, we run the
+# .exe with --selftest on the runner itself to verify the bundle actually
+# launches and that the native sqlcipher / pymupdf libs loaded — catches
+# missing-DLL bugs that a green pyinstaller invocation alone would hide.
 
 on:
   push:
@@ -34,22 +37,28 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller==6.10.0
 
-      - name: Build with PyInstaller
+      - name: Build with PyInstaller (single-file)
         run: pyinstaller packaging/CourtDocCataloguer.spec --clean --noconfirm
 
+      - name: Self-test the .exe
+        # Runs the bundled app with --selftest, which imports sqlcipher3 +
+        # fitz + tkinter + cryptography and exercises the SQLCipher round
+        # trip. Fails the job if any native library failed to bundle.
+        run: dist/CourtDocCataloguer.exe --selftest
+
       - name: Stage the portable bundle
-        # Copy the launch.bat next to the produced CourtDocCataloguer/ folder
-        # so the resulting zip is "drag-and-drop onto a USB drive" ready.
+        # Drop the beta-tester README next to the .exe so the zip is
+        # drag-and-drop onto a USB drive ready.
         shell: pwsh
         run: |
-          Copy-Item packaging/launch.bat dist/launch.bat
           Copy-Item BETA_TEST.md dist/README.txt -ErrorAction SilentlyContinue
           Get-ChildItem dist/ -Recurse | Select-Object -First 30
 
       - name: Zip the bundle
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/* -DestinationPath CourtDocCataloguer-portable.zip
+          Compress-Archive -Path dist/CourtDocCataloguer.exe,dist/README.txt `
+            -DestinationPath CourtDocCataloguer-portable.zip
 
       - name: Upload artifact (kept for 30 days)
         uses: actions/upload-artifact@v4

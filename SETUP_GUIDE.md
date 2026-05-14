@@ -63,9 +63,17 @@ Run this once from the project folder:
 pyinstaller packaging\CourtDocCataloguer.spec --clean --noconfirm
 ```
 
-The spec file (`packaging/CourtDocCataloguer.spec`) bundles the statically-linked SQLCipher library plus PyMuPDF's native extensions, and is configured for the multi-file output we ship (not `--onefile` — see the comment in the spec for why). The resulting `dist/CourtDocCataloguer/` folder is the portable bundle; drop it next to `packaging/launch.bat` on a USB drive and you have a working portable install.
+The spec file (`packaging/CourtDocCataloguer.spec`) is configured for a **single-file** PyInstaller build: it produces one `CourtDocCataloguer.exe` containing the bundled Python runtime, statically-linked SQLCipher, PyMuPDF, and tkinter. No `_internal/` folder, no launcher batch file. Drop the .exe on a USB drive and it will self-locate — the data directory defaults to a `data\` folder next to wherever the .exe lives.
 
-For the automated build, see `.github/workflows/build-release.yml` — every push to `main` triggers a Windows-runner build that uploads the bundled zip as an Actions artifact. Tagged pushes (`v1.2.0` etc.) also create a GitHub Release with the zip attached.
+After building, verify the bundle locally:
+
+```
+dist\CourtDocCataloguer.exe --selftest
+```
+
+Should exit 0 and print `court_cataloguer self-test passed`. The CI build runs this automatically on every push.
+
+For the automated build, see `.github/workflows/build-release.yml` — every push to `main` triggers a Windows-runner build that uploads the zip as an Actions artifact. Tagged pushes (`v1.2.0` etc.) also create a GitHub Release with the zip attached.
 
 The finished executable appears at:
 ```
@@ -76,24 +84,37 @@ dist\CourtDocCataloguer.exe
 
 ## Step 5 — Deploy to a Staff Machine
 
-1. Copy `CourtDocCataloguer.exe` to the staff machine (USB or network share)
-2. Place it anywhere — suggest `C:\CourtDocCataloguer\CourtDocCataloguer.exe`
-3. Right-click → **Create shortcut** → drag shortcut to desktop
-4. Double-click the shortcut to launch
+1. Copy `CourtDocCataloguer.exe` to the staff machine — on a USB drive for portable mode, or anywhere on `C:\` for a fixed install.
+2. (Optional) Right-click → **Create shortcut** → drag shortcut to desktop.
+3. Double-click the .exe (or shortcut) to launch.
 
-**No Python install needed on staff machines.** The .exe is self-contained.
+**No Python install needed on staff machines.** The .exe is self-contained — Python, tkinter, sqlcipher3, and pymupdf are all bundled in.
+
+The .exe self-locates its data directory: a `data\` folder is created next to the .exe on first launch. To force a specific location, set `COURT_DOC_DIR=<path>` before launching.
 
 ---
 
-## Data Location (on every machine)
+## Data Location
+
+The data directory defaults depend on how the app is launched:
+
+| Launch mode | Default data dir |
+|---|---|
+| Run from the built `.exe` (portable USB) | `<exe-dir>\data\` — the folder right next to the .exe |
+| Run from source (`python main.py` during development) | `C:\CourtDocCataloguer\` |
+| Override either case | Set `COURT_DOC_DIR=<path>` before launch |
+
+Inside that directory:
 
 | Path | Contents |
 |---|---|
-| `C:\CourtDocCataloguer\cataloguer.db` | All case and document records |
-| `C:\CourtDocCataloguer\archive\` | Imported PDFs organised by date |
-| `C:\CourtDocCataloguer\exports\master_catalogue.xlsx` | Master spreadsheet |
+| `cataloguer.db` | All case and document records (SQLCipher encrypted) |
+| `keyfile.json` | KDF parameters needed to re-derive the master key |
+| `archive\<YYYY-MM-DD>\` | Imported PDFs organised by date |
+| `exports\master_catalogue.xlsx` | Master spreadsheet |
+| `logs\app.log` | Rotating PII-redacted log |
 
-**Backup recommendation:** Copy `C:\CourtDocCataloguer\` to a network drive or external drive weekly. The `cataloguer.db` file is encrypted — backups are safe to store on a less-trusted drive, but **the backup is only useful if you still know the passphrase**.
+**Backup recommendation:** Copy the entire data folder (or the USB drive) to a network drive or external drive weekly. The `cataloguer.db` file is encrypted — backups are safe to store on a less-trusted drive, but **the backup is only useful if you still know the passphrase**.
 
 ---
 

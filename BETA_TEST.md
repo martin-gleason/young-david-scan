@@ -27,19 +27,17 @@ A 12-character minimum is enforced. Longer phrases ("blue October chair house") 
 ## Step 2 — Put it on a USB drive
 
 1. Plug an empty USB drive into your work computer. **2 GB or more.** A smaller drive will work for a few weeks; you'll want headroom for the PDF archive as you process more cases.
-2. Unzip `CourtDocCataloguer-portable.zip` onto the USB drive. You should see:
+2. Unzip `CourtDocCataloguer-portable.zip` onto the USB drive. You should see exactly two files:
 
 ```
 E:\
-├── CourtDocCataloguer\
-│   ├── CourtDocCataloguer.exe
-│   └── (a bunch of supporting files)
-└── launch.bat
+├── CourtDocCataloguer.exe
+└── README.txt
 ```
 
 (Drive letter will vary — E:, F:, G: depending on what's plugged in.)
 
-3. **Double-click `launch.bat`** — not the .exe directly. The batch file points the app at a `data\` folder right next to itself, so everything you do — database, archived PDFs, the audit trail — stays on the USB drive. Run the .exe by itself and it'll default to `C:\CourtDocCataloguer\` on the workstation instead, which defeats the portability.
+3. **Double-click `CourtDocCataloguer.exe`.** Windows takes about 2–3 seconds on the first launch while it unpacks the bundled Python runtime into a temporary folder (normal — happens once per session). The app then creates a `data\` folder right next to the .exe and puts everything in it — database, archived PDFs, the audit trail — so it all stays on the USB drive. The .exe knows where it is and points itself at the USB automatically; no launcher batch file required.
 
 ---
 
@@ -95,7 +93,7 @@ You can use real data, but think about these risks first:
 - **Losing the USB.** The data is encrypted with your passphrase, so a stolen or lost USB is effectively a brick to anyone else. But losing it still costs you the data — same as today if your laptop died with `C:\CourtDocCataloguer\` on it. **Make a backup** by copying the `data\` folder somewhere safe (encrypted external drive, or your existing backup spot) at least weekly.
 - **Losing the passphrase.** Already covered above. There is no recovery.
 - **Wearing out the USB.** Cheap flash drives die unpredictably. If you use this for real work, get a name-brand drive (SanDisk Ultra, Samsung Bar Plus, Kingston) — they last years; bargain-bin drives last weeks.
-- **The audit log lives in the same encrypted DB.** Set `COURT_DOC_AUDIT=1` to see what's there (open `launch.bat` in Notepad and uncomment the line). Future versions will let you export it.
+- **The audit log lives in the same encrypted DB.** To see what's there, open Command Prompt on the USB drive and run `set COURT_DOC_AUDIT=1 && CourtDocCataloguer.exe` — an Audit Log button appears on the Home screen. Future versions will surface it without the env-var hop.
 
 ---
 
@@ -116,10 +114,10 @@ Compared to anything you've used before:
 | Problem | What to do |
 |---|---|
 | "Incorrect passphrase" again and again | Caps Lock? After 5 attempts the app quits — re-launch and try once more, calmly. |
-| App won't start | Make sure you double-clicked `launch.bat`, not the .exe directly. |
+| App won't start | Wait 5 seconds — the first launch unpacks the bundled Python runtime to a temp folder, which takes a moment. If still nothing, see "Antivirus quarantined the .exe" below. |
 | Windows SmartScreen warning | Click "More info" → "Run anyway". The build is unsigned for now — that's a paid certificate I haven't bought yet. |
-| Antivirus quarantined the .exe | Add the USB drive's CourtDocCataloguer folder to your AV allowlist. PyInstaller-bundled .exes sometimes trigger heuristics. |
-| "Idle lock" annoys you | Open `launch.bat` in Notepad, uncomment the `COURT_DOC_LOCK_MINUTES=5` line (or set a different number), save, re-launch. |
+| Antivirus quarantined the .exe | Add the USB drive (or the .exe itself) to your AV allowlist. Single-file PyInstaller bundles trigger heuristics more often than installed apps — code-signing fixes this for real but isn't in yet. |
+| "Idle lock" annoys you | Set the environment variable `COURT_DOC_LOCK_MINUTES=20` (or whatever) before launching. The fastest way: Command Prompt → `cd` to the USB → `set COURT_DOC_LOCK_MINUTES=20` → `CourtDocCataloguer.exe`. |
 | Lost the USB | If it had encrypted data on it: you're fine, the finder can't read it. If it had a paper note with your passphrase: now the finder CAN read it. Don't keep the passphrase on/near the USB. |
 | Forgot the passphrase | Sorry — the data is gone. Set a new passphrase on a fresh USB and start over. |
 
