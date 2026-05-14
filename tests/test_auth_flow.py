@@ -64,3 +64,42 @@ class TestFirstRunAndUnlock:
             auth.unlock("absolutely-not-the-passphrase")
         # And master key was cleared on failure.
         assert not database.has_master_key()
+
+
+class TestRollbackFirstRun:
+    """rollback_first_run() must wipe the state first_run_setup wrote.
+
+    Regression cover for the bug young david hit: a failed first-run left a
+    keyfile + half-encrypted DB on disk, wedging the next launch into UNLOCK
+    mode where no passphrase could possibly open the DB.
+    """
+
+    def test_rollback_wipes_keyfile_and_db(self, empty_dir):
+        auth.first_run_setup("a-real-test-passphrase-12chars")
+        database.init_db()
+        # Simulate the post-init failure (e.g. an audit append exploding):
+        # files are on disk, master key is in memory.
+        assert (empty_dir / "keyfile.json").exists()
+        assert (empty_dir / "cataloguer.db").exists()
+        assert database.has_master_key()
+
+        auth.rollback_first_run()
+
+        assert not (empty_dir / "keyfile.json").exists()
+        assert not (empty_dir / "cataloguer.db").exists()
+        assert not database.has_master_key()
+
+    def test_rollback_is_idempotent(self, empty_dir):
+        # No files on disk, no key in memory. Must not raise.
+        auth.rollback_first_run()
+        auth.rollback_first_run()
+        assert not (empty_dir / "keyfile.json").exists()
+
+    def test_after_rollback_startup_mode_is_first_run_again(self, empty_dir):
+        auth.first_run_setup("a-real-test-passphrase-12chars")
+        database.init_db()
+
+        auth.rollback_first_run()
+
+        # The next launch should treat this as a fresh install, not unlock.
+        assert auth.determine_startup_mode() == auth.StartupMode.FIRST_RUN

@@ -188,9 +188,16 @@ class AuthScreen(tk.Frame):
 
         try:
             if self._mode == "first_run":
-                auth.first_run_setup(pw1)
-                database.init_db()
-                audit.append_standalone("auth.first_run")
+                try:
+                    auth.first_run_setup(pw1)
+                    database.init_db()
+                    audit.append_standalone("auth.first_run")
+                except Exception:
+                    # Wipe keyfile + partial DB so the next attempt restarts
+                    # cleanly in first_run mode instead of getting wedged into
+                    # UNLOCK with an unrecoverable key/DB mismatch.
+                    auth.rollback_first_run()
+                    raise
             elif self._mode == "import_plaintext":
                 auth.import_plaintext(pw1)
                 database.init_db()

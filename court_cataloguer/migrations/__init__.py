@@ -4,20 +4,26 @@ Each migration module exposes a `run(conn: sqlite3.Connection) -> dict` function
 that performs an idempotent schema/data change and returns a small stats dict
 (at minimum `{"changed": int, "skipped": int}`) for logging.
 
-Migrations are discovered and applied in lexical filename order by
-`apply_all()`. They run inside a single transaction per migration so a partial
-run rolls back cleanly.
+Migrations are applied in the order listed in `MIGRATIONS` below. They run
+inside a single transaction per migration so a partial run rolls back cleanly.
 
 There is no migration-versions table — each migration is self-skipping. If we
 ever outgrow this (Phase 4+), introduce a `schema_migrations(name, applied_at)`
 table at that point. For now (single-user, handful of migrations) the
 self-skip property is enough.
+
+Why an explicit MIGRATIONS list instead of pkgutil discovery: in a PyInstaller
+`--onefile` bundle, the migration modules' bytecode lives inside the PYZ
+archive, not as separate files on disk. `pkgutil.iter_modules` returns an
+empty list there — a documented PyInstaller limitation — which caused first-
+run audit-log creation to silently no-op and break the auth flow with
+"no such table: audit_log". The test `test_migrations_list_matches_files`
+guards against the list drifting from the files in this directory.
 """
 
 from __future__ import annotations
 
 import importlib
-import pkgutil
 import shutil
 import sqlite3
 from pathlib import Path
@@ -26,19 +32,13 @@ from ..logging_setup import get_logger
 
 log = get_logger(__name__)
 
-
-def _discover_migration_names() -> list[str]:
-    """Return migration module names in lexical order (e.g. ['001_dates_to_iso'])."""
-    pkg_path = Path(__file__).parent
-    names: list[str] = []
-    for mod in pkgutil.iter_modules([str(pkg_path)]):
-        if mod.ispkg:
-            continue
-        # Migrations start with a 3-digit prefix. Everything else (this file,
-        # any future helpers) is skipped.
-        if len(mod.name) >= 3 and mod.name[:3].isdigit():
-            names.append(mod.name)
-    return sorted(names)
+# Apply in this order. Add new migrations to the END of this tuple.
+MIGRATIONS: tuple[str, ...] = (
+    "001_dates_to_iso",
+    "002_fk_restrict",
+    "003_add_audit_log",
+    "004_add_document_provenance",
+)
 
 
 def _backup(db_path: Path, tag: str) -> Path | None:
@@ -58,14 +58,13 @@ def _backup(db_path: Path, tag: str) -> Path | None:
 
 
 def apply_all(conn: sqlite3.Connection, db_path: Path) -> None:
-    """Run every discovered migration, in order. Idempotent overall."""
-    names = _discover_migration_names()
-    if not names:
+    """Run every migration in order. Idempotent overall."""
+    if not MIGRATIONS:
         return
 
     _backup(db_path, "pre-migrations")
 
-    for name in names:
+    for name in MIGRATIONS:
         mod = importlib.import_module(f"{__name__}.{name}")
         if not hasattr(mod, "run"):
             log.warning("Migration %s has no run() — skipping", name)

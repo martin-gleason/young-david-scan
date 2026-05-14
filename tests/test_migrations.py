@@ -1,11 +1,32 @@
 """Migration tests — both 001 (dates) and 002 (FK), plus apply_all idempotency."""
 
+from pathlib import Path
+
 import pytest
 from sqlcipher3 import dbapi2 as sqlite
 
 from court_cataloguer import database as db
-from court_cataloguer.migrations import apply_all
+from court_cataloguer.migrations import MIGRATIONS, apply_all
 from tests.conftest import TEST_MASTER_KEY
+
+
+def test_migrations_list_matches_files_on_disk():
+    """The explicit MIGRATIONS tuple must include every NNN_*.py in the package.
+
+    This guards against the bug where a new migration file is added but
+    nobody updates MIGRATIONS — `apply_all` would silently skip it, the
+    table it creates would be missing in fresh installs, and the bug
+    would only surface when downstream code references the missing table.
+    """
+    import court_cataloguer.migrations as mig
+
+    pkg_dir = Path(mig.__file__).parent
+    files = sorted(p.stem for p in pkg_dir.glob("[0-9][0-9][0-9]_*.py"))
+    assert list(MIGRATIONS) == files, (
+        f"MIGRATIONS drifted from files on disk.\n"
+        f"  tuple: {list(MIGRATIONS)}\n"
+        f"  files: {files}"
+    )
 
 
 def _raw_conn(path):
