@@ -44,11 +44,12 @@ hiddenimports += collect_submodules("fitz")
 # filters out as invalid Python identifiers. So glob the .py files
 # directly — this is build-time only, doesn't require the package to
 # be importable, and handles digit-prefixed names fine.
-import os as _os
 from pathlib import Path as _Path
 
-_SPEC_DIR = _Path(_os.path.abspath(__file__)).parent  # packaging/
-_PROJECT_ROOT = _SPEC_DIR.parent
+# SPECPATH is a PyInstaller-injected global — the directory containing
+# this spec file. __file__ is NOT defined in PyInstaller's spec exec
+# context (we tried; the build errored with NameError).
+_PROJECT_ROOT = _Path(SPECPATH).parent  # noqa: F821 — SPECPATH is injected
 _MIG_DIR = _PROJECT_ROOT / "court_cataloguer" / "migrations"
 hiddenimports += [
     f"court_cataloguer.migrations.{p.stem}"
