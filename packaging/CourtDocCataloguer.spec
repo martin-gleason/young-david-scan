@@ -37,11 +37,25 @@ hiddenimports += collect_submodules("fitz")
 
 # court_cataloguer.migrations — submodules are loaded dynamically by
 # importlib.import_module(f"...{name}") from migrations/__init__.py, so
-# PyInstaller's static-import analyzer can't see them. Without this
-# collect_submodules they'd be omitted from the PYZ archive and the
-# audit_log table would never get created on first run. Lesson learned
-# at the cost of one broken beta build.
-hiddenimports += collect_submodules("court_cataloguer.migrations")
+# PyInstaller's static-import analyzer can't see them. We can't use
+# collect_submodules() here for two reasons: (a) the project isn't on
+# sys.path during spec processing unless we add it, and (b) the names
+# start with digits (001_dates_to_iso etc.) which collect_submodules
+# filters out as invalid Python identifiers. So glob the .py files
+# directly — this is build-time only, doesn't require the package to
+# be importable, and handles digit-prefixed names fine.
+import os as _os
+from pathlib import Path as _Path
+
+_SPEC_DIR = _Path(_os.path.abspath(__file__)).parent  # packaging/
+_PROJECT_ROOT = _SPEC_DIR.parent
+_MIG_DIR = _PROJECT_ROOT / "court_cataloguer" / "migrations"
+hiddenimports += [
+    f"court_cataloguer.migrations.{p.stem}"
+    for p in sorted(_MIG_DIR.glob("[0-9][0-9][0-9]_*.py"))
+]
+# Also force the package itself + its __init__ into the bundle.
+hiddenimports += ["court_cataloguer.migrations"]
 
 block_cipher = None
 
