@@ -133,8 +133,11 @@ class CourtDocApp(tk.Tk):
 
 def _run_selftest() -> int:
     # Used by the CI build pipeline to fail fast if PyInstaller dropped a
-    # required native binary. Runs without opening a window so it works on
-    # headless Windows runners. Exits 0 on success, non-zero on failure.
+    # required native binary, OR if the frozen bundle behaves differently
+    # from a source checkout (e.g. pkgutil.iter_modules returning empty
+    # against the PYZ archive — the bug that broke young david's first run).
+    # Runs without opening a window so it works on headless Windows runners.
+    # Exits 0 on success, non-zero on failure.
     print("court_cataloguer self-test starting", flush=True)
 
     # SQLCipher: read PRAGMA cipher_version to prove the native cipher
@@ -186,6 +189,75 @@ def _run_selftest() -> int:
     from cryptography.hazmat.primitives import hashes, hmac  # noqa: F401
 
     print("  cryptography: ok", flush=True)
+
+    # Migration discovery: the explicit MIGRATIONS tuple must be non-empty
+    # AND every name in it must be importable as a submodule. The whole
+    # point of switching off pkgutil was that PyInstaller's frozen-PYZ
+    # archive returned nothing — this asserts we found the modules anyway.
+    from court_cataloguer.migrations import MIGRATIONS
+
+    if not MIGRATIONS:
+        print("FAIL: MIGRATIONS list is empty", flush=True)
+        return 5
+    import importlib
+
+    for name in MIGRATIONS:
+        try:
+            mod = importlib.import_module(f"court_cataloguer.migrations.{name}")
+        except ImportError as exc:
+            print(f"FAIL: migration {name} not importable: {exc}", flush=True)
+            return 6
+        if not hasattr(mod, "run"):
+            print(f"FAIL: migration {name} has no run() function", flush=True)
+            return 7
+    print(f"  migrations: {len(MIGRATIONS)} module(s) importable", flush=True)
+
+    # End-to-end first-run flow: write keyfile, init the encrypted DB, run
+    # ALL migrations, append the audit row, unlock with the same passphrase,
+    # read it back. This is the scenario that broke at runtime under PR #5
+    # — the cipher worked and modules imported, but the migration step
+    # silently no-op'd and the next line tried to insert into a nonexistent
+    # audit_log table. This block exercises that full path.
+    import os
+    import tempfile
+    from pathlib import Path
+
+    from court_cataloguer import auth, config, database
+
+    tmp_data = Path(tempfile.mkdtemp(prefix="court-selftest-"))
+    os.environ["COURT_DOC_DIR"] = str(tmp_data)
+    # config was imported earlier (transitively) so its module-level paths
+    # are already frozen. Repoint them explicitly for this run.
+    config.APP_DATA_DIR = tmp_data
+    config.DB_PATH = tmp_data / "cataloguer.db"
+    config.KEYFILE_PATH = tmp_data / "keyfile.json"
+    database.APP_DATA_DIR = tmp_data
+    database.DB_PATH = tmp_data / "cataloguer.db"
+    auth.DB_PATH = tmp_data / "cataloguer.db"
+    auth.KEYFILE_PATH = tmp_data / "keyfile.json"
+
+    try:
+        from court_cataloguer import audit
+
+        passphrase = "selftest-passphrase-not-real"
+        auth.first_run_setup(passphrase)
+        database.init_db()
+        # The audit append is the line that failed in production — keep it.
+        audit.append_standalone("auth.first_run")
+
+        # Round-trip: lock + unlock with the same passphrase.
+        database.clear_master_key()
+        auth.unlock(passphrase)
+        rows = database.get_all_cases()
+        if rows != []:
+            print(f"FAIL: fresh DB had unexpected rows: {rows!r}", flush=True)
+            return 8
+        print("  first-run + unlock round trip: ok", flush=True)
+    finally:
+        import shutil as _shutil
+
+        database.clear_master_key()
+        _shutil.rmtree(tmp_data, ignore_errors=True)
 
     print("court_cataloguer self-test passed", flush=True)
     return 0

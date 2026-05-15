@@ -78,13 +78,47 @@ def first_run_setup(passphrase: str) -> None:
     Caller is responsible for then invoking `database.init_db()` which
     creates the schema in a newly-encrypted DB. Audit row is appended
     by the caller after init_db (the audit_log table doesn't exist until
-    migration 003 runs).
+    migration 003 runs). If anything after this point fails the caller
+    MUST call `rollback_first_run()` — otherwise the keyfile + half-built
+    DB on disk will trip the next launch into UNLOCK mode with no way to
+    reach the actual user data.
     """
     salt = crypto.generate_salt()
     crypto.save_keyfile(KEYFILE_PATH, salt)
     key = crypto.derive_key(passphrase, salt)
     database.set_master_key(key)
     log.info("First-run setup complete; keyfile written to %s", KEYFILE_PATH.name)
+
+
+def rollback_first_run(db_path: Path | None = None, keyfile_path: Path | None = None) -> None:
+    """Undo a partially-completed first_run_setup so the next attempt starts clean.
+
+    Called when init_db or the post-init audit append fails after the keyfile
+    has been written. Wipes the in-memory master key, the keyfile, the DB and
+    any SQLite sidecars. Idempotent — safe to call when no files exist.
+
+    This is the only way to recover from a failed first-run without manual
+    file deletion. Critical because a stale keyfile + DB pair routes the
+    next launch into UNLOCK mode (no "Create passphrase" UI), where no key
+    can possibly open a DB that was encrypted with a now-discarded key.
+    """
+    db_path = db_path or DB_PATH
+    keyfile_path = keyfile_path or KEYFILE_PATH
+    database.clear_master_key()
+    sidecars = [
+        keyfile_path,
+        db_path,
+        db_path.with_suffix(db_path.suffix + "-journal"),
+        db_path.with_suffix(db_path.suffix + "-shm"),
+        db_path.with_suffix(db_path.suffix + "-wal"),
+    ]
+    for p in sidecars:
+        try:
+            if p.exists():
+                p.unlink()
+                log.info("first-run rollback: deleted %s", p.name)
+        except OSError:
+            log.exception("first-run rollback: failed to delete %s", p.name)
 
 
 def unlock(passphrase: str) -> None:
